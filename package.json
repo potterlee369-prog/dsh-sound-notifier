@@ -38,6 +38,7 @@
     "typescript": "^5.7.0"
   },
   "scripts": {
-    "build": "node build.mjs"
+    "build": "node build.mjs",
+    "test": "npm run build && node smoke-test.mjs && node client-smoke.mjs"
   }
 }

@@ -2,6 +2,8 @@
 
 DSH Web 插件：**任务完成时在浏览器中播放音效提示**，并且**区分"自然完成"与"中途中断"两种音效**；**当弹出需要用户选择的选项时也会播放提示音**。会话一轮任务结束（agent 从运行转为空闲）的瞬间，页面会播放对应提示音——即使你正切在别的标签页也能听到。
 
+本项目依赖 DSH Web 宿主环境的插件运行时，不能脱离宿主单独运行。
+
 - **自然完成 vs 中断**：任务正常收尾播放"完成提示音"（默认清脆铃声）；被用户停止、模型请求出错、输出截断等中断播放"中断提示音"（默认短促提示音）。
 - **用户选择提醒**：`ask_user_question` 弹出选项、计划审批（plan review）等需要用户选择/确认的弹窗出现时，播放独立的"选择提示音"（默认叮咚）。权限审批弹窗默认关闭，可在设置中开启。
 - **四种内置提示音**：清脆铃声、叮咚、成功和弦、短促提示音。全部用 Web Audio API 实时合成，零音频资源文件；完成音、中断音与选择提示音可各自独立选择。
@@ -11,7 +13,7 @@ DSH Web 插件：**任务完成时在浏览器中播放音效提示**，并且**
 
 ## 工作原理
 
-- **完成检测**：订阅客户端 `sessions.list` 状态存储，跟踪每个会话 `running: true → false` 边沿——与侧边栏绿色"完成"标记用的是同一条主机状态帧（`host/session-status`），信号权威可靠。首次观测只记录状态（页面加载时已完成的会话不会补响）。
+- **完成检测**：订阅客户端 `sessions.list` 状态存储，跟踪每个会话 `running: true → false` 边沿——与侧边栏的完成状态使用同一条宿主状态流，信号权威可靠。首次观测只记录状态（页面加载时已完成的会话不会补响）。
 - **完成/中断分类**：当前选中（打开中）的会话有实时事件窗口（`Session.events`，与状态帧同一条有序连接），边沿时刻读取最后一个 `turn/end` 的 `reason.kind` 分类：
   | reason.kind | 含义 | 音效 |
   |---|---|---|
@@ -24,15 +26,16 @@ DSH Web 插件：**任务完成时在浏览器中播放音效提示**，并且**
   - **后台会话**（未选中、无事件窗口）无法读到 reason，统一按自然完成播放。
 - **选择检测**：订阅客户端 `sessions.list` 状态存储，跟踪每个会话 `pendingInteraction` 从无到有的边沿——`question` 和 `plan-review` 对应 `ask_user_question`/计划审批弹窗，播放"选择提示音"；`approval` 权限审批默认不提醒，可手动开启。首次观测只记录状态（页面加载时已挂起的弹窗不会补响）。
 - **播放引擎**：振荡器 + 增益包络合成；浏览器自动播放策略通过首次用户手势（点击/按键）解锁 AudioContext，由于任务必然由交互发起，播放时上下文已处于可播放状态。
-- **配置存储**：选项保存在 `localStorage`（`dsh.sound-notifier.v1`），对每个浏览器独立生效。注意：第三方插件的配置命名空间无法通过官方 settings RPC 暴露（宿主 apiproxy 白名单），因此本插件不自带宿主侧配置。
+- **配置存储**：选项保存在 `localStorage`（`dsh.sound-notifier.v1`），对每个浏览器独立生效。当前宿主设置接口不提供第三方插件的配置命名空间，因此本插件不自带宿主侧配置。
 
 ## 安装
 
 ```powershell
 # 1. 安装到 web profile（link: 方式，源码改动即时生效，无需重新 add）
-dsh plugin --profile web add "E:\dsh_custom\dsh-sound-notifier"
+#    将下面的路径替换为本地 checkout 路径。
+dsh plugin --profile web add "C:\path\to\dsh-sound-notifier"
 
-# 2. 在 C:\Users\<you>\.dsh\profiles\web\cordis.patch.yml 中挂载该行:
+# 2. 在 web profile 的插件挂载配置中加入：
 #    - insert:
 #        - id: sound-notifier
 #          name: dsh-sound-notifier
@@ -59,12 +62,12 @@ dsh plugin --profile web add "E:\dsh_custom\dsh-sound-notifier"
 ## 开发循环
 
 ```powershell
-cd E:\dsh_custom\dsh-sound-notifier
-npm install        # 首次
-node build.mjs     # esbuild 打宿主/客户端 bundle + tsc 生成 d.ts
-node smoke-test.mjs      # 宿主半侧冒烟
-node client-smoke.mjs    # 客户端 bundle 工厂形态 + 完成/中断分类边沿逻辑冒烟
+cd C:\path\to\dsh-sound-notifier
+npm ci              # 首次安装依赖
+npm test            # 构建并运行两个冒烟测试
 ```
+
+如果只需要生成 bundle，可单独运行 `npm run build`。
 
 改完代码后 `node build.mjs`，然后**重启 `dsh web`**（客户端插件清单在启动时扫描，`/plugins/...` 的 hash 也取启动时快照；link: 安装意味着无需重新 pnpm add）。
 
